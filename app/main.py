@@ -144,15 +144,6 @@ async def read_users_me(
     return current_user
 
 
-@app.post("/api/articles/", response_model=schemas.ArticleResponse)
-async def create_article_endpoint(
-        article: schemas.ArticleCreate,
-        db: AsyncSession = Depends(get_db),
-        current_user: schemas.UserResponse = Depends(auth.get_current_admin_user)
-):
-    return await crud.create_article(db, article)
-
-
 @app.get("/api/articles/", response_model=List[schemas.ArticleResponse])
 async def read_articles(
         filter_params: schemas.ArticleFilter = Depends(),
@@ -244,59 +235,12 @@ async def get_read_history(
     return history
 
 
-@app.get("/api/feed/personal")
-async def debug_feed(
+@app.get("/api/feed/personal", response_model=List[schemas.ArticleResponse])
+async def get_personalized_feed(
         db: AsyncSession = Depends(get_db),
         current_user: schemas.UserResponse = Depends(auth.get_current_active_user)
 ):
-    from sqlalchemy import select
-    from app import crud
-
-    debug_info = {}
-
-    try:
-        debug_info["user_id"] = current_user.id
-        debug_info["user_email"] = current_user.email
-
-        result = await db.execute(select(models.Article))
-        articles = result.scalars().all()
-        debug_info["total_articles"] = len(articles)
-
-        recent_result = await db.execute(
-            select(models.Article)
-            .order_by(models.Article.created_at.desc())
-            .limit(5)
-        )
-        recent_articles = recent_result.scalars().all()
-        debug_info["recent_articles"] = [
-            {"id": a.id, "title": a.title, "category": a.category}
-            for a in recent_articles
-        ]
-
-        preferences = await crud.get_user_preferences(db, current_user.id)
-        debug_info["preferences"] = [
-            {"id": p.id, "category": p.category, "source_id": p.source_id, "weight": p.weight}
-            for p in preferences
-        ]
-
-        history = await crud.get_user_read_history(db, current_user.id)
-        debug_info["read_history_count"] = len(history)
-
-        feed = await crud.get_personalized_feed(db, current_user.id, 10)
-        debug_info["feed_result_count"] = len(feed)
-        debug_info["feed_articles"] = [
-            {"id": a.id, "title": a.title} for a in feed[:5]
-        ]
-
-        debug_info["status"] = "success"
-
-    except Exception as e:
-        debug_info["status"] = "error"
-        debug_info["error"] = str(e)
-        import traceback
-        debug_info["traceback"] = traceback.format_exc()
-
-    return debug_info
+    return await crud.get_personalized_feed(db, current_user.id)
 
 
 @app.get("/api/sources/", response_model=List[schemas.NewsSourceResponse])
@@ -368,11 +312,10 @@ async def parse_source_background(db: AsyncSession, parser: RSSParser, source_id
 async def get_parser_status():
     return {
         "status": "available",
-        "note": "Парсинг можно запустить через /api/parser/sync/{source_id}"
+        "note": "Парсинг можно запустить через /api/parser/sync-all"
     }
 
 
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(app, host="0.0.0.0", port=8000)

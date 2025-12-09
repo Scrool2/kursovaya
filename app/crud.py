@@ -306,33 +306,24 @@ async def get_personalized_feed(db: AsyncSession, user_id: int, limit: int = 20)
     preferences = await get_user_preferences(db, user_id)
 
     history = await get_user_read_history(db, user_id)
-    read_article_ids = [h.article_id for h in history] if history else []
+    read_article_ids = [h["article_id"] for h in history] if history else []
 
     if preferences:
         preferred_categories = []
-        preferred_sources = []
-
         for pref in preferences:
-            if pref.category:
+            if pref.category and pref.weight > 0.3:
                 preferred_categories.append(pref.category)
-            if pref.source_id:
-                preferred_sources.append(pref.source_id)
 
         query = select(models.Article).options(joinedload(models.Article.source))
 
         if read_article_ids:
             query = query.where(~models.Article.id.in_(read_article_ids))
 
-        conditions = []
         if preferred_categories:
-            conditions.append(models.Article.category.in_(preferred_categories))
-        if preferred_sources:
-            conditions.append(models.Article.source_id.in_(preferred_sources))
-
-        if conditions:
-            query = query.where(or_(*conditions))
-
-        query = query.order_by(desc(models.Article.published_at)).limit(limit)
+            query = query.where(models.Article.category.in_(preferred_categories))
+            query = query.order_by(desc(models.Article.published_at)).limit(limit)
+        else:
+            query = query.order_by(desc(models.Article.published_at)).limit(limit)
 
     else:
         query = (
@@ -346,7 +337,7 @@ async def get_personalized_feed(db: AsyncSession, user_id: int, limit: int = 20)
     result = await db.execute(query)
     articles = result.unique().scalars().all()
 
-    if len(articles) < limit // 2:
+    if len(articles) < limit:
         remaining = limit - len(articles)
         general_query = (
             select(models.Article)

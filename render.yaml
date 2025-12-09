@@ -4,13 +4,19 @@ services:
     env: python
     region: oregon
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 4
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
     envVars:
       - key: DATABASE_URL
-        sync: false
+        fromDatabase:
+          name: newshub-db
+          property: connectionString
       - key: SECRET_KEY
         generateValue: true
-      - key: PYTHON_VERSION
-        value: 3.11.0
     healthCheckPath: /health
     autoDeploy: true
+
+databases:
+  - name: newshub-db
+    plan: free
+    databaseName: newshub
+    user: newshub_user

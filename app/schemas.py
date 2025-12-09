@@ -1,4 +1,4 @@
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, EmailStr, Field
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -21,23 +21,23 @@ class ArticleCategory(str, Enum):
 
 
 class UserBase(BaseModel):
-    email: str
-    username: str
+    email: EmailStr
+    username: str = Field(..., min_length=3, max_length=50)
 
 
 class UserCreate(UserBase):
-    password: str
+    password: str = Field(..., min_length=6)
 
 
 class UserLogin(BaseModel):
-    email: str
+    email: EmailStr
     password: str
 
 
 class UserResponse(UserBase):
     id: int
     is_active: bool
-    role: str
+    role: UserRole
     created_at: datetime
 
     class Config:
@@ -54,35 +54,30 @@ class TokenData(BaseModel):
     email: Optional[str] = None
 
 
-class ArticleCreate(BaseModel):
+class ArticleBase(BaseModel):
     title: str
+    summary: Optional[str] = None
     content: str
-    summary: str
     source_url: str
     image_url: Optional[str] = None
+    category: ArticleCategory
     source_id: int
-    category: str
     published_at: Optional[datetime] = None
+
+
+class ArticleCreate(ArticleBase):
+    pass
 
 
 class ArticleUpdate(BaseModel):
     title: Optional[str] = None
-    content: Optional[str] = None
     summary: Optional[str] = None
-    image_url: Optional[str] = None
-    category: Optional[str] = None
+    content: Optional[str] = None
+    category: Optional[ArticleCategory] = None
 
 
-class ArticleResponse(BaseModel):
+class ArticleResponse(ArticleBase):
     id: int
-    title: str
-    summary: Optional[str]
-    content: str
-    source_url: str
-    image_url: Optional[str]
-    category: str
-    published_at: Optional[datetime]
-    source_id: Optional[int]
     created_at: datetime
     is_read: Optional[bool] = False
 
@@ -100,40 +95,39 @@ class ArticleFilter(BaseModel):
     offset: int = 0
 
 
-class NewsSourceCreate(BaseModel):
+class NewsSourceBase(BaseModel):
     name: str
     url: str
     website: Optional[str] = None
     category: ArticleCategory = ArticleCategory.GENERAL
     language: str = "ru"
-    is_active: bool = True
 
 
-class NewsSourceResponse(BaseModel):
+class NewsSourceCreate(NewsSourceBase):
+    pass
+
+
+class NewsSourceResponse(NewsSourceBase):
     id: int
-    name: str
-    url: str
-    website: Optional[str]
-    category: ArticleCategory
-    language: str
     is_active: bool
-    last_fetch: Optional[datetime]
     created_at: datetime
 
     class Config:
         from_attributes = True
 
 
-class UserPreferenceCreate(BaseModel):
+class UserPreferenceBase(BaseModel):
     category: ArticleCategory
-    weight: float = 1.0
+    weight: float = Field(0.0, ge=0.0, le=1.0)
 
 
-class UserPreferenceResponse(BaseModel):
+class UserPreferenceCreate(UserPreferenceBase):
+    pass
+
+
+class UserPreferenceResponse(UserPreferenceBase):
     id: int
     user_id: int
-    category: ArticleCategory
-    weight: float
     created_at: datetime
     updated_at: Optional[datetime]
 
@@ -141,19 +135,21 @@ class UserPreferenceResponse(BaseModel):
         from_attributes = True
 
 
-class ReadHistoryCreate(BaseModel):
+class ReadHistoryBase(BaseModel):
     article_id: int
     read_time_seconds: Optional[int] = None
 
 
-class ReadHistoryResponse(BaseModel):
+class ReadHistoryCreate(ReadHistoryBase):
+    pass
+
+
+class ReadHistoryResponse(ReadHistoryBase):
     id: int
     user_id: int
-    article_id: int
     read_at: datetime
-    read_time_seconds: Optional[int]
     article_title: str
-    article_category: str
+    article_category: ArticleCategory
 
     class Config:
         from_attributes = True

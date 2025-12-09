@@ -52,7 +52,7 @@ class RSSParser:
         session = await self._get_session()
 
         try:
-            async with session.get(rss_url) as response:
+            async with session.get(rss_url, timeout=10) as response:
                 content = await response.text()
 
             feed = feedparser.parse(content)
