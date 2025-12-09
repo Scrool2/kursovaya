@@ -4,10 +4,7 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="38e22c00-0655-487c-811b-e175a5a4f576" name="Changes" comment="update requirements.txt">
-      <change afterPath="$PROJECT_DIR$/pyproject.toml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-    </list>
+    <list default="true" id="38e22c00-0655-487c-811b-e175a5a4f576" name="Changes" comment="add .toml file" />
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
     <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
@@ -189,7 +186,15 @@
       <option name="project" value="LOCAL" />
       <updated>1765311349306</updated>
     </task>
-    <option name="localTasksCounter" value="12" />
+    <task id="LOCAL-00012" summary="add .toml file">
+      <option name="closed" value="true" />
+      <created>1765311684328</created>
+      <option name="number" value="00012" />
+      <option name="presentableId" value="LOCAL-00012" />
+      <option name="project" value="LOCAL" />
+      <updated>1765311684328</updated>
+    </task>
+    <option name="localTasksCounter" value="13" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -199,6 +204,7 @@
     <MESSAGE value="add rss_parser.py" />
     <MESSAGE value="update parser controller" />
     <MESSAGE value="update requirements.txt" />
-    <option name="LAST_COMMIT_MESSAGE" value="update requirements.txt" />
+    <MESSAGE value="add .toml file" />
+    <option name="LAST_COMMIT_MESSAGE" value="add .toml file" />
   </component>
 </project>
