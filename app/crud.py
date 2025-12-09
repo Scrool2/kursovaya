@@ -4,7 +4,7 @@ from sqlalchemy.orm import selectinload
 from typing import List, Optional
 from fastapi import HTTPException
 
-from app import models, schemas
+from app import models
 from app.auth import get_password_hash
 
 
@@ -22,7 +22,7 @@ async def get_user_by_username(db: AsyncSession, username: str):
     return result.scalar_one_or_none()
 
 
-async def create_user(db: AsyncSession, user: schemas.UserCreate):
+async def create_user(db: AsyncSession, user):
     try:
         hashed_password = get_password_hash(user.password)
 
@@ -36,10 +36,11 @@ async def create_user(db: AsyncSession, user: schemas.UserCreate):
         await db.commit()
         await db.refresh(db_user)
 
-        for category_enum in schemas.ArticleCategory:
+        # Create default preferences
+        for category in models.ArticleCategory:
             preference = models.UserPreference(
                 user_id=db_user.id,
-                category=category_enum.value,
+                category=category,
                 weight=0.5
             )
             db.add(preference)
@@ -47,7 +48,14 @@ async def create_user(db: AsyncSession, user: schemas.UserCreate):
         await db.commit()
         await db.refresh(db_user)
 
-        return db_user
+        return {
+            "id": db_user.id,
+            "email": db_user.email,
+            "username": db_user.username,
+            "is_active": db_user.is_active,
+            "role": db_user.role,
+            "created_at": db_user.created_at
+        }
 
     except Exception as e:
         await db.rollback()
@@ -57,17 +65,21 @@ async def create_user(db: AsyncSession, user: schemas.UserCreate):
         )
 
 
-async def create_article(db: AsyncSession, article: schemas.ArticleCreate):
+async def create_article(db: AsyncSession, article):
     try:
         article_data = article.dict()
 
-        article_fields = [c.key for c in models.Article.__table__.columns]
+        db_article = models.Article(
+            title=article_data.get('title', '')[:500],
+            summary=article_data.get('summary', '')[:1000] if article_data.get('summary') else None,
+            content=article_data.get('content', ''),
+            source_url=article_data.get('source_url', ''),
+            image_url=article_data.get('image_url'),
+            category=article_data.get('category'),
+            source_id=article_data.get('source_id'),
+            published_at=article_data.get('published_at')
+        )
 
-        for field in list(article_data.keys()):
-            if field not in article_fields:
-                del article_data[field]
-
-        db_article = models.Article(**article_data)
         db.add(db_article)
         await db.commit()
         await db.refresh(db_article)
@@ -91,7 +103,7 @@ async def get_article(db: AsyncSession, article_id: int):
 
 async def get_articles(
         db: AsyncSession,
-        filter_params: schemas.ArticleFilter,
+        filter_params,
         user_id: Optional[int] = None
 ):
     query = select(models.Article).options(selectinload(models.Article.source))
@@ -124,8 +136,10 @@ async def get_articles(
     result = await db.execute(query)
     articles = result.scalars().all()
 
-    if user_id:
-        for article in articles:
+    # Add is_read flag
+    for article in articles:
+        article.is_read = False
+        if user_id:
             history_result = await db.execute(
                 select(models.ReadHistory)
                 .where(
@@ -141,7 +155,7 @@ async def get_articles(
 async def update_article(
         db: AsyncSession,
         article_id: int,
-        article_update: schemas.ArticleUpdate
+        article_update
 ):
     update_data = article_update.dict(exclude_unset=True)
 
@@ -165,7 +179,7 @@ async def delete_article(db: AsyncSession, article_id: int):
     return result.rowcount > 0
 
 
-async def get_articles_count(db: AsyncSession, filter_params: schemas.ArticleFilter):
+async def get_articles_count(db: AsyncSession, filter_params):
     query = select(func.count()).select_from(models.Article)
 
     if filter_params.category:
@@ -178,7 +192,7 @@ async def get_articles_count(db: AsyncSession, filter_params: schemas.ArticleFil
     return result.scalar()
 
 
-async def create_news_source(db: AsyncSession, source: schemas.NewsSourceCreate):
+async def create_news_source(db: AsyncSession, source):
     db_source = models.NewsSource(**source.dict())
     db.add(db_source)
     await db.commit()
@@ -212,7 +226,7 @@ async def get_user_preferences(db: AsyncSession, user_id: int):
     return result.scalars().all()
 
 
-async def update_user_preference(db: AsyncSession, user_id: int, preference: schemas.UserPreferenceCreate):
+async def update_user_preference(db: AsyncSession, user_id: int, preference):
     query = select(models.UserPreference).where(
         models.UserPreference.user_id == user_id,
         models.UserPreference.category == preference.category
@@ -241,7 +255,7 @@ async def update_user_preference(db: AsyncSession, user_id: int, preference: sch
 async def create_read_history(
         db: AsyncSession,
         user_id: int,
-        history: schemas.ReadHistoryCreate
+        history
 ):
     result = await db.execute(
         select(models.ReadHistory).where(
@@ -301,53 +315,35 @@ async def get_user_read_history(db: AsyncSession, user_id: int):
 
 
 async def get_personalized_feed(db: AsyncSession, user_id: int, limit: int = 20):
-    from sqlalchemy import select, or_, desc
+    from sqlalchemy import select, desc
     from sqlalchemy.orm import joinedload
 
+    # Get user preferences
     preferences = await get_user_preferences(db, user_id)
 
+    # Get read history
     history = await get_user_read_history(db, user_id)
     read_article_ids = [h["article_id"] for h in history] if history else []
 
+    # Build query
+    query = select(models.Article).options(joinedload(models.Article.source))
+
+    if read_article_ids:
+        query = query.where(~models.Article.id.in_(read_article_ids))
+
+    # Filter by preferred categories
     if preferences:
         preferred_categories = []
         for pref in preferences:
             if pref.category and pref.weight > 0.3:
                 preferred_categories.append(pref.category)
 
-        query = select(models.Article).options(joinedload(models.Article.source))
-
-        if read_article_ids:
-            query = query.where(~models.Article.id.in_(read_article_ids))
-
         if preferred_categories:
             query = query.where(models.Article.category.in_(preferred_categories))
 
-        query = query.order_by(desc(models.Article.published_at)).limit(limit)
-
-    else:
-        query = (
-            select(models.Article)
-            .options(joinedload(models.Article.source))
-            .where(~models.Article.id.in_(read_article_ids) if read_article_ids else True)
-            .order_by(desc(models.Article.published_at))
-            .limit(limit)
-        )
+    query = query.order_by(desc(models.Article.published_at)).limit(limit)
 
     result = await db.execute(query)
     articles = result.unique().scalars().all()
-
-    if len(articles) < limit:
-        remaining = limit - len(articles)
-        general_query = (
-            select(models.Article)
-            .options(joinedload(models.Article.source))
-            .where(~models.Article.id.in_([a.id for a in articles] + read_article_ids))
-            .order_by(desc(models.Article.published_at))
-            .limit(remaining)
-        )
-        general_result = await db.execute(general_query)
-        general_articles = general_result.unique().scalars().all()
-        articles.extend(general_articles)
 
     return articles

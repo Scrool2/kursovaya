@@ -9,13 +9,10 @@ import os
 import hashlib
 from dotenv import load_dotenv
 
-from app import crud, schemas
 from app.database import get_db
+from app import crud
 
 load_dotenv()
-
-if not os.getenv("SECRET_KEY"):
-    os.environ["SECRET_KEY"] = "dev-secret-key-for-kursovaya-2024"
 
 SECRET_KEY = os.getenv("SECRET_KEY", "dev-secret-key-for-kursovaya-2024")
 ALGORITHM = "HS256"
@@ -73,24 +70,31 @@ async def get_current_user(
         email: str = payload.get("sub")
         if email is None:
             raise credentials_exception
-        token_data = schemas.TokenData(email=email)
     except JWTError:
         raise credentials_exception
 
-    user = await crud.get_user_by_email(db, email=token_data.email)
+    user = await crud.get_user_by_email(db, email=email)
     if user is None:
         raise credentials_exception
-    return user
+
+    return {
+        "id": user.id,
+        "email": user.email,
+        "username": user.username,
+        "is_active": user.is_active,
+        "role": user.role,
+        "created_at": user.created_at
+    }
 
 
-async def get_current_active_user(current_user: schemas.UserResponse = Depends(get_current_user)):
-    if not current_user.is_active:
+async def get_current_active_user(current_user: dict = Depends(get_current_user)):
+    if not current_user["is_active"]:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
 
-async def get_current_admin_user(current_user: schemas.UserResponse = Depends(get_current_active_user)):
-    if current_user.role != schemas.UserRole.ADMIN:
+async def get_current_admin_user(current_user: dict = Depends(get_current_active_user)):
+    if current_user["role"] != "ADMIN":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"
