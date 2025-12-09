@@ -23,7 +23,7 @@ class RSSParser:
             await self.session.close()
 
     def _categorize_article(self, title: str, summary: str = "") -> ArticleCategory:
-        text = (title + " " + summary).lower()
+        text_content = (title + " " + summary).lower()
 
         category_keywords = {
             ArticleCategory.POLITICS: ['выборы', 'президент', 'правительство', 'политика', 'путин', 'депутат'],
@@ -40,7 +40,7 @@ class RSSParser:
 
         for category, keywords in category_keywords.items():
             for keyword in keywords:
-                if keyword in text:
+                if keyword in text_content:
                     scores[category] += 1
 
         if max(scores.values()) > 0:
@@ -115,7 +115,7 @@ class RSSParser:
                     content=article_data['content'],
                     source_url=article_data['source_url'],
                     image_url=article_data['image_url'],
-                    category=article_data['category'],
+                    category=article_data['category'].value,
                     source_id=source_id,
                     published_at=article_data['published_at']
                 )

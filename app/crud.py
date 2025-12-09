@@ -1,9 +1,8 @@
-from http.client import HTTPException
-
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, func, or_
 from sqlalchemy.orm import selectinload
 from typing import List, Optional
+from fastapi import HTTPException
 
 from app import models, schemas
 from app.auth import get_password_hash
@@ -24,7 +23,6 @@ async def get_user_by_username(db: AsyncSession, username: str):
 
 
 async def create_user(db: AsyncSession, user: schemas.UserCreate):
-    """Создать пользователя с предпочтениями"""
     try:
         hashed_password = get_password_hash(user.password)
 
@@ -38,9 +36,7 @@ async def create_user(db: AsyncSession, user: schemas.UserCreate):
         await db.commit()
         await db.refresh(db_user)
 
-        from app.schemas import ArticleCategory
-
-        for category_enum in ArticleCategory:
+        for category_enum in schemas.ArticleCategory:
             preference = models.UserPreference(
                 user_id=db_user.id,
                 category=category_enum.value,
@@ -55,33 +51,24 @@ async def create_user(db: AsyncSession, user: schemas.UserCreate):
 
     except Exception as e:
         await db.rollback()
-        print(f"Ошибка при создании пользователя: {e}")
         raise HTTPException(
             status_code=500,
             detail=f"Ошибка при создании пользователя: {str(e)}"
         )
 
 
-# Article CRUD
 async def create_article(db: AsyncSession, article: schemas.ArticleCreate):
     try:
         article_data = article.dict()
 
-        print(f"Полученные данные: {article_data}")
-
         if 'author' in article_data:
             del article_data['author']
-            print("Удалено поле 'author' (отсутствует в модели)")
 
         article_fields = [c.key for c in models.Article.__table__.columns]
-        print(f"Поля модели Article: {article_fields}")
 
         for field in list(article_data.keys()):
             if field not in article_fields:
-                print(f"Удаляем поле '{field}' (отсутствует в модели)")
                 del article_data[field]
-
-        print(f"Данные для создания статьи: {article_data}")
 
         db_article = models.Article(**article_data)
         db.add(db_article)
@@ -92,7 +79,6 @@ async def create_article(db: AsyncSession, article: schemas.ArticleCreate):
 
     except Exception as e:
         await db.rollback()
-        print(f"Ошибка при создании статьи: {e}")
         raise
 
 
@@ -135,7 +121,6 @@ async def get_articles(
         )
 
     query = query.order_by(models.Article.published_at.desc())
-
     query = query.offset(filter_params.offset).limit(filter_params.limit)
 
     result = await db.execute(query)
@@ -315,88 +300,63 @@ async def get_user_read_history(db: AsyncSession, user_id: int):
 
 
 async def get_personalized_feed(db: AsyncSession, user_id: int, limit: int = 20):
-    print(f"get_personalized_feed вызван для user_id={user_id}, limit={limit}")
+    from sqlalchemy import select, or_, desc
+    from sqlalchemy.orm import joinedload
 
-    try:
-        from sqlalchemy import select, or_, and_, desc
-        from sqlalchemy.orm import joinedload
+    preferences = await get_user_preferences(db, user_id)
 
-        from . import crud
-        preferences = await crud.get_user_preferences(db, user_id)
+    history = await get_user_read_history(db, user_id)
+    read_article_ids = [h.article_id for h in history] if history else []
 
-        print(f"Найдено предпочтений: {len(preferences) if preferences else 0}")
+    if preferences:
+        preferred_categories = []
+        preferred_sources = []
 
-        history = await crud.get_user_read_history(db, user_id)
-        read_article_ids = [h.article_id for h in history] if history else []
+        for pref in preferences:
+            if pref.category:
+                preferred_categories.append(pref.category)
+            if pref.source_id:
+                preferred_sources.append(pref.source_id)
 
-        print(f"Прочитано статей: {len(read_article_ids)}")
+        query = select(models.Article).options(joinedload(models.Article.source))
 
-        if preferences:
-            preferred_categories = []
-            preferred_sources = []
+        if read_article_ids:
+            query = query.where(~models.Article.id.in_(read_article_ids))
 
-            for pref in preferences:
-                if pref.category:
-                    preferred_categories.append(pref.category)
-                if pref.source_id:
-                    preferred_sources.append(pref.source_id)
+        conditions = []
+        if preferred_categories:
+            conditions.append(models.Article.category.in_(preferred_categories))
+        if preferred_sources:
+            conditions.append(models.Article.source_id.in_(preferred_sources))
 
-            print(f"Предпочтительные категории: {preferred_categories}")
-            print(f"Предпочтительные источники: {preferred_sources}")
+        if conditions:
+            query = query.where(or_(*conditions))
 
-            query = select(models.Article).options(joinedload(models.Article.source))
+        query = query.order_by(desc(models.Article.published_at)).limit(limit)
 
-            if read_article_ids:
-                query = query.where(~models.Article.id.in_(read_article_ids))
+    else:
+        query = (
+            select(models.Article)
+            .options(joinedload(models.Article.source))
+            .where(~models.Article.id.in_(read_article_ids) if read_article_ids else True)
+            .order_by(desc(models.Article.published_at))
+            .limit(limit)
+        )
 
-            conditions = []
-            if preferred_categories:
-                conditions.append(models.Article.category.in_(preferred_categories))
-            if preferred_sources:
-                conditions.append(models.Article.source_id.in_(preferred_sources))
+    result = await db.execute(query)
+    articles = result.unique().scalars().all()
 
-            if conditions:
-                query = query.where(or_(*conditions))
+    if len(articles) < limit // 2:
+        remaining = limit - len(articles)
+        general_query = (
+            select(models.Article)
+            .options(joinedload(models.Article.source))
+            .where(~models.Article.id.in_([a.id for a in articles] + read_article_ids))
+            .order_by(desc(models.Article.published_at))
+            .limit(remaining)
+        )
+        general_result = await db.execute(general_query)
+        general_articles = general_result.unique().scalars().all()
+        articles.extend(general_articles)
 
-            query = query.order_by(desc(models.Article.published_at)).limit(limit)
-
-        else:
-            query = (
-                select(models.Article)
-                .options(joinedload(models.Article.source))
-                .where(~models.Article.id.in_(read_article_ids) if read_article_ids else True)
-                .order_by(desc(models.Article.published_at))
-                .limit(limit)
-            )
-
-        print(f"SQL запрос: {query}")
-
-        result = await db.execute(query)
-        articles = result.unique().scalars().all()
-
-        print(f"Найдено статей после фильтрации: {len(articles)}")
-
-        if len(articles) < limit // 2:
-            print("Мало статей после фильтрации, добавляем общие...")
-            remaining = limit - len(articles)
-            general_query = (
-                select(models.Article)
-                .options(joinedload(models.Article.source))
-                .where(~models.Article.id.in_([a.id for a in articles] + read_article_ids))
-                .order_by(desc(models.Article.published_at))
-                .limit(remaining)
-            )
-            general_result = await db.execute(general_query)
-            general_articles = general_result.unique().scalars().all()
-            articles.extend(general_articles)
-
-        for article in articles[:5]:
-            print(f"Статья в фиде: ID={article.id}, Title={article.title[:30]}..., Category={article.category}")
-
-        return articles
-
-    except Exception as e:
-        print(f"Ошибка в get_personalized_feed: {e}")
-        import traceback
-        print(traceback.format_exc())
-        return []
+    return articles

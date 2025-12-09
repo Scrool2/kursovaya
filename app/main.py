@@ -1,35 +1,27 @@
 from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, status
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordRequestForm
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from datetime import timedelta
 from typing import List
-from app.parser.rss_parser import RSSParser
+from contextlib import asynccontextmanager
 
 from app import crud, schemas, auth, models
 from app.database import engine, Base, get_db
-from app.parser.rss_parser import RUSSIA_SOURCES
-from contextlib import asynccontextmanager
+from app.parser.rss_parser import RUSSIA_SOURCES, RSSParser
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Упрощенная lifespan - только создание таблиц и добавление источников"""
-    # Startup
-    print("\n" + "=" * 60)
     print("🚀 Запуск NewsHub API...")
 
     try:
-        # 1. Создаем таблицы
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         print("✅ Таблицы базы данных созданы")
 
-        # 2. Добавляем источники (упрощенно)
         async with AsyncSession(engine) as session:
             try:
-                # Проверяем есть ли источники
                 result = await session.execute(text("SELECT COUNT(*) FROM news_sources"))
                 count = result.scalar()
 
@@ -48,13 +40,11 @@ async def lifespan(app: FastAPI):
                 else:
                     print(f"✅ Найдено {count} существующих источников")
             except Exception as e:
-                print(f"⚠️  Предупреждение при добавлении источников: {e}")
+                print(f"⚠️ Предупреждение при добавлении источников: {e}")
                 await session.rollback()
 
         print("✅ Инициализация завершена")
-        print("🌐 API доступно по адресу: http://127.0.0.1:8000")
-        print("📖 Документация: http://127.0.0.1:8000/docs")
-        print("=" * 60 + "\n")
+        print("🌐 API доступно")
 
     except Exception as e:
         print(f"❌ Критическая ошибка при запуске: {e}")
@@ -62,10 +52,9 @@ async def lifespan(app: FastAPI):
         traceback.print_exc()
         raise
 
-    yield  # Приложение работает здесь
+    yield
 
-    # Shutdown
-    print("\n👋 Завершение работы...")
+    print("👋 Завершение работы...")
     try:
         await engine.dispose()
         print("✅ Ресурсы освобождены")
@@ -74,15 +63,14 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="NewsHub API - Агрегатор новостей",
-    description="API для агрегации новостей из различных источников с персонализацией",
+    title="NewsHub API",
+    description="API для агрегации новостей",
     version="1.0.0",
     lifespan=lifespan,
     docs_url="/docs",
     redoc_url="/redoc"
 )
 
-# Настройка CORS
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -92,14 +80,26 @@ app.add_middleware(
 )
 
 
-# Эндпоинты аутентификации
-@app.post("/api/auth/register", response_model=schemas.UserResponse, tags=["Аутентификация"])
+@app.get("/")
+async def root():
+    return {
+        "message": "Добро пожаловать в NewsHub API",
+        "version": "1.0.0",
+        "docs": "/docs"
+    }
+
+
+@app.get("/health")
+async def health_check():
+    from datetime import datetime
+    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
+
+
+@app.post("/api/auth/register", response_model=schemas.UserResponse)
 async def register(
         user: schemas.UserCreate,
         db: AsyncSession = Depends(get_db)
 ):
-    """Регистрация нового пользователя"""
-    # Проверяем, существует ли пользователь
     db_user = await crud.get_user_by_email(db, email=user.email)
     if db_user:
         raise HTTPException(status_code=400, detail="Email уже зарегистрирован")
@@ -111,7 +111,7 @@ async def register(
     return await crud.create_user(db, user=user)
 
 
-@app.post("/api/auth/login", response_model=schemas.Token, tags=["Аутентификация"])
+@app.post("/api/auth/login", response_model=schemas.Token)
 async def login(
         login_data: schemas.UserLogin,
         db: AsyncSession = Depends(get_db)
@@ -136,110 +136,93 @@ async def login(
         "user": user
     }
 
-@app.get("/api/auth/me", response_model=schemas.UserResponse, tags=["Аутентификация"])
+
+@app.get("/api/auth/me", response_model=schemas.UserResponse)
 async def read_users_me(
         current_user: schemas.UserResponse = Depends(auth.get_current_active_user)
 ):
-    """Получить информацию о текущем пользователе"""
     return current_user
 
 
-# Эндпоинты статей (CRUD)
-@app.post("/api/articles/",
-          response_model=schemas.ArticleResponse,
-          tags=["Статьи"],
-          dependencies=[Depends(auth.get_current_admin_user)])
+@app.post("/api/articles/", response_model=schemas.ArticleResponse)
 async def create_article_endpoint(
         article: schemas.ArticleCreate,
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_db),
+        current_user: schemas.UserResponse = Depends(auth.get_current_admin_user)
 ):
-    """Создать новую статью (только для админов)"""
     return await crud.create_article(db, article)
 
 
-@app.get("/api/articles/", response_model=List[schemas.ArticleResponse], tags=["Статьи"])
+@app.get("/api/articles/", response_model=List[schemas.ArticleResponse])
 async def read_articles(
         filter_params: schemas.ArticleFilter = Depends(),
         db: AsyncSession = Depends(get_db),
         current_user: schemas.UserResponse = Depends(auth.get_current_active_user)
 ):
-    """Получить список статей с фильтрацией"""
     return await crud.get_articles(db, filter_params, current_user.id)
 
 
-@app.get("/api/articles/{article_id}", response_model=schemas.ArticleResponse, tags=["Статьи"])
+@app.get("/api/articles/{article_id}", response_model=schemas.ArticleResponse)
 async def read_article(
         article_id: int,
         db: AsyncSession = Depends(get_db),
         current_user: schemas.UserResponse = Depends(auth.get_current_active_user)
 ):
-    """Получить конкретную статью"""
     article = await crud.get_article(db, article_id)
     if article is None:
         raise HTTPException(status_code=404, detail="Статья не найдена")
     return article
 
 
-@app.put("/api/articles/{article_id}",
-         response_model=schemas.ArticleResponse,
-         tags=["Статьи"],
-         dependencies=[Depends(auth.get_current_admin_user)])
+@app.put("/api/articles/{article_id}", response_model=schemas.ArticleResponse)
 async def update_article_endpoint(
         article_id: int,
         article_update: schemas.ArticleUpdate,
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_db),
+        current_user: schemas.UserResponse = Depends(auth.get_current_admin_user)
 ):
-    """Обновить статью (только для админов)"""
     article = await crud.update_article(db, article_id, article_update)
     if article is None:
         raise HTTPException(status_code=404, detail="Статья не найдена")
     return article
 
 
-@app.delete("/api/articles/{article_id}", tags=["Статьи"])
+@app.delete("/api/articles/{article_id}")
 async def delete_article_endpoint(
         article_id: int,
         db: AsyncSession = Depends(get_db),
         current_user: schemas.UserResponse = Depends(auth.get_current_admin_user)
 ):
-    """Удалить статью (только для админов)"""
     success = await crud.delete_article(db, article_id)
     if not success:
         raise HTTPException(status_code=404, detail="Статья не найдена")
     return {"message": "Статья успешно удалена"}
 
 
-@app.get("/api/user/preferences",
-         response_model=List[schemas.UserPreferenceResponse],
-         tags=["Пользователь"])
+@app.get("/api/user/preferences", response_model=List[schemas.UserPreferenceResponse])
 async def get_preferences(
         db: AsyncSession = Depends(get_db),
         current_user: schemas.UserResponse = Depends(auth.get_current_active_user)
 ):
-    """Получить предпочтения пользователя"""
     return await crud.get_user_preferences(db, current_user.id)
 
 
-@app.post("/api/user/preferences",
-          response_model=schemas.UserPreferenceResponse,
-          tags=["Пользователь"])
+@app.post("/api/user/preferences", response_model=schemas.UserPreferenceResponse)
 async def update_preference(
         preference: schemas.UserPreferenceCreate,
         db: AsyncSession = Depends(get_db),
         current_user: schemas.UserResponse = Depends(auth.get_current_active_user)
 ):
-    """Обновить предпочтения пользователя"""
     return await crud.update_user_preference(db, current_user.id, preference)
 
 
-@app.post("/api/articles/{article_id}/read", tags=["Статьи"])
+@app.post("/api/articles/{article_id}/read")
 async def mark_as_read(
         article_id: int,
         read_time: int = None,
         db: AsyncSession = Depends(get_db),
         current_user: schemas.UserResponse = Depends(auth.get_current_active_user)
 ):
-    """Отметить статью как прочитанную"""
     history = schemas.ReadHistoryCreate(
         article_id=article_id,
         read_time_seconds=read_time
@@ -252,24 +235,22 @@ async def mark_as_read(
     return {"message": "Статья отмечена как прочитанная"}
 
 
-@app.get("/api/user/history",
-         response_model=List[schemas.ReadHistoryResponse],
-         tags=["Пользователь"])
+@app.get("/api/user/history", response_model=List[schemas.ReadHistoryResponse])
 async def get_read_history(
         db: AsyncSession = Depends(get_db),
         current_user: schemas.UserResponse = Depends(auth.get_current_active_user)
 ):
-    """Получить историю чтения пользователя"""
     history = await crud.get_user_read_history(db, current_user.id)
     return history
 
 
-@app.get("/api/feed/personal", tags=["Отладка"])
+@app.get("/api/feed/personal")
 async def debug_feed(
         db: AsyncSession = Depends(get_db),
         current_user: schemas.UserResponse = Depends(auth.get_current_active_user)
 ):
-    from sqlalchemy import select, text
+    from sqlalchemy import select
+    from app import crud
 
     debug_info = {}
 
@@ -292,7 +273,6 @@ async def debug_feed(
             for a in recent_articles
         ]
 
-        from app import crud
         preferences = await crud.get_user_preferences(db, current_user.id)
         debug_info["preferences"] = [
             {"id": p.id, "category": p.category, "source_id": p.source_id, "weight": p.weight}
@@ -319,7 +299,7 @@ async def debug_feed(
     return debug_info
 
 
-@app.get("/api/sources/", response_model=List[schemas.NewsSourceResponse], tags=["Источники"])
+@app.get("/api/sources/", response_model=List[schemas.NewsSourceResponse])
 async def read_sources(
         skip: int = 0,
         limit: int = 100,
@@ -328,26 +308,22 @@ async def read_sources(
     return await crud.get_news_sources(db, skip=skip, limit=limit)
 
 
-@app.post("/api/sources/",
-          response_model=schemas.NewsSourceResponse,
-          tags=["Источники"],
-          dependencies=[Depends(auth.get_current_admin_user)])
+@app.post("/api/sources/", response_model=schemas.NewsSourceResponse)
 async def create_source(
         source: schemas.NewsSourceCreate,
-        db: AsyncSession = Depends(get_db)
+        db: AsyncSession = Depends(get_db),
+        current_user: schemas.UserResponse = Depends(auth.get_current_admin_user)
 ):
     return await crud.create_news_source(db, source)
 
 
-@app.post("/api/parser/sync-all", tags=["Парсинг"])
+@app.post("/api/parser/sync-all")
 async def sync_all_sources(
         background_tasks: BackgroundTasks,
         db: AsyncSession = Depends(get_db),
         current_user: schemas.UserResponse = Depends(auth.get_current_admin_user)
 ):
-    """Запустить парсинг всех источников"""
     from sqlalchemy import select
-    from app import models
 
     result = await db.execute(select(models.NewsSource))
     sources = result.scalars().all()
@@ -362,7 +338,6 @@ async def sync_all_sources(
             )
             db.add(source)
         await db.commit()
-
 
         result = await db.execute(select(models.NewsSource))
         sources = result.scalars().all()
@@ -382,7 +357,6 @@ async def sync_all_sources(
 
 
 async def parse_source_background(db: AsyncSession, parser: RSSParser, source_id: int, rss_url: str):
-    """Фоновая задача парсинга"""
     try:
         saved_count = await parser.parse_and_save_articles(db, source_id, rss_url)
         print(f"Сохранено {saved_count} статей из {rss_url}")
@@ -390,36 +364,12 @@ async def parse_source_background(db: AsyncSession, parser: RSSParser, source_id
         await parser.close()
 
 
-@app.get("/api/parser/status", tags=["Парсинг"])
+@app.get("/api/parser/status")
 async def get_parser_status():
-    """Получить статус парсера"""
     return {
         "status": "available",
         "note": "Парсинг можно запустить через /api/parser/sync/{source_id}"
     }
-
-
-@app.get("/", tags=["Корень"])
-async def root():
-    """Корневой эндпоинт API"""
-    return {
-        "message": "Добро пожаловать в NewsHub API - агрегатор новостей",
-        "version": "1.0.0",
-        "docs": "/docs",
-        "endpoints": {
-            "auth": "/api/auth/",
-            "articles": "/api/articles/",
-            "feed": "/api/feed/personal",
-            "sources": "/api/sources/",
-            "user": "/api/user/"
-        }
-    }
-
-
-@app.get("/health", tags=["Система"])
-async def health_check():
-    from datetime import datetime
-    return {"status": "healthy", "timestamp": datetime.now().isoformat()}
 
 
 if __name__ == "__main__":

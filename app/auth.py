@@ -24,13 +24,14 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
+
 def get_password_hash(password: str) -> str:
     salt = "news-hub-secure-salt-2024"
     salted_password = password + salt
     return hashlib.sha256(salted_password.encode()).hexdigest()
 
+
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    """Проверка пароля"""
     salt = "news-hub-secure-salt-2024"
     salted_password = plain_password + salt
     return hashlib.sha256(salted_password.encode()).hexdigest() == hashed_password

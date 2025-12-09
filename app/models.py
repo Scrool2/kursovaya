@@ -6,19 +6,19 @@ import enum
 
 
 class UserRole(str, enum.Enum):
-    USER = "user"
-    ADMIN = "admin"
+    USER = "USER"
+    ADMIN = "ADMIN"
 
 
 class ArticleCategory(str, enum.Enum):
-    POLITICS = "politics"
-    TECHNOLOGY = "technology"
-    SPORTS = "sports"
-    BUSINESS = "business"
-    ENTERTAINMENT = "entertainment"
-    SCIENCE = "science"
-    HEALTH = "health"
-    GENERAL = "general"
+    POLITICS = "POLITICS"
+    TECHNOLOGY = "TECHNOLOGY"
+    SPORTS = "SPORTS"
+    BUSINESS = "BUSINESS"
+    ENTERTAINMENT = "ENTERTAINMENT"
+    SCIENCE = "SCIENCE"
+    HEALTH = "HEALTH"
+    GENERAL = "GENERAL"
 
 
 class User(Base):
@@ -41,7 +41,7 @@ class NewsSource(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, nullable=False)
-    url = Column(String, nullable=False)  # RSS URL
+    url = Column(String, nullable=False)
     website = Column(String)
     category = Column(Enum(ArticleCategory), default=ArticleCategory.GENERAL)
     language = Column(String, default="ru")
