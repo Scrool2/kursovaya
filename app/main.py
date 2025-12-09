@@ -5,6 +5,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from datetime import timedelta
 from typing import List
+from app.parser.rss_parser import RSSParser
 
 from app import crud, schemas, auth, models
 from app.database import engine, Base, get_db
@@ -208,7 +209,6 @@ async def delete_article_endpoint(
     return {"message": "Статья успешно удалена"}
 
 
-# Эндпоинты для пользовательских предпочтений
 @app.get("/api/user/preferences",
          response_model=List[schemas.UserPreferenceResponse],
          tags=["Пользователь"])
@@ -232,7 +232,6 @@ async def update_preference(
     return await crud.update_user_preference(db, current_user.id, preference)
 
 
-# Эндпоинты для истории чтения
 @app.post("/api/articles/{article_id}/read", tags=["Статьи"])
 async def mark_as_read(
         article_id: int,
@@ -340,18 +339,55 @@ async def create_source(
     return await crud.create_news_source(db, source)
 
 
-@app.post("/api/parser/sync/{source_id}", tags=["Парсинг"])
-async def sync_source(
-        source_id: int,
+@app.post("/api/parser/sync-all", tags=["Парсинг"])
+async def sync_all_sources(
         background_tasks: BackgroundTasks,
         db: AsyncSession = Depends(get_db),
         current_user: schemas.UserResponse = Depends(auth.get_current_admin_user)
 ):
-    source = await crud.get_news_source(db, source_id)
-    if not source:
-        raise HTTPException(status_code=404, detail="Источник не найден")
+    """Запустить парсинг всех источников"""
+    from sqlalchemy import select
+    from app import models
 
-    return {"message": f"Парсинг для {source.name} добавлен в очередь"}
+    result = await db.execute(select(models.NewsSource))
+    sources = result.scalars().all()
+
+    if not sources:
+        for source_data in RUSSIA_SOURCES:
+            source = models.NewsSource(
+                name=source_data["name"],
+                url=source_data["url"],
+                category=source_data["category"].value,
+                language=source_data["language"]
+            )
+            db.add(source)
+        await db.commit()
+
+
+        result = await db.execute(select(models.NewsSource))
+        sources = result.scalars().all()
+
+    parser = RSSParser()
+    for source in sources:
+        if source.url:
+            background_tasks.add_task(
+                parse_source_background,
+                db=db,
+                parser=parser,
+                source_id=source.id,
+                rss_url=source.url
+            )
+
+    return {"message": f"Парсинг {len(sources)} источников добавлен в очередь"}
+
+
+async def parse_source_background(db: AsyncSession, parser: RSSParser, source_id: int, rss_url: str):
+    """Фоновая задача парсинга"""
+    try:
+        saved_count = await parser.parse_and_save_articles(db, source_id, rss_url)
+        print(f"Сохранено {saved_count} статей из {rss_url}")
+    finally:
+        await parser.close()
 
 
 @app.get("/api/parser/status", tags=["Парсинг"])
