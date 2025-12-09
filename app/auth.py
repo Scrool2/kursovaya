@@ -6,6 +6,7 @@ from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 import os
+import hashlib
 from dotenv import load_dotenv
 
 from app import crud, schemas
@@ -23,12 +24,16 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
-def verify_password(plain_password, hashed_password):
-    return pwd_context.verify(plain_password, hashed_password)
+def get_password_hash(password: str) -> str:
+    salt = "news-hub-secure-salt-2024"
+    salted_password = password + salt
+    return hashlib.sha256(salted_password.encode()).hexdigest()
 
-
-def get_password_hash(password):
-    return pwd_context.hash(password)
+def verify_password(plain_password: str, hashed_password: str) -> bool:
+    """Проверка пароля"""
+    salt = "news-hub-secure-salt-2024"
+    salted_password = plain_password + salt
+    return hashlib.sha256(salted_password.encode()).hexdigest() == hashed_password
 
 
 async def authenticate_user(db: AsyncSession, email: str, password: str):
