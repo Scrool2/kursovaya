@@ -1,7 +1,7 @@
 import aiohttp
 import feedparser
 from datetime import datetime
-from typing import List, Dict, Optional
+from typing import List, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from app import crud, schemas
@@ -51,7 +51,7 @@ class RSSParser:
                 content = await response.text()
             feed = feedparser.parse(content)
             articles = []
-            for entry in feed.entries[:5]:
+            for entry in feed.entries[:10]:
                 published = None
                 if hasattr(entry, 'published_parsed') and entry.published_parsed:
                     published = datetime(*entry.published_parsed[:6])
@@ -80,6 +80,8 @@ class RSSParser:
         except Exception as e:
             print(f"Error parsing RSS feed {rss_url}: {e}")
             return []
+        finally:
+            await self.close()
 
     async def parse_and_save_articles(self, db: AsyncSession, source_id: int, rss_url: str) -> int:
         articles_data = await self.parse_feed(rss_url)
@@ -94,12 +96,13 @@ class RSSParser:
                 if result.scalar_one_or_none():
                     continue
 
+
                 article = schemas.ArticleCreate(
                     title=article_data['title'][:500],
                     summary=article_data['summary'][:1000] if article_data['summary'] else None,
-                    content=article_data['content'],
-                    source_url=article_data['source_url'],
-                    image_url=article_data['image_url'],
+                    content=article_data['content'][:5000] if article_data['content'] else '',
+                    source_url=article_data['source_url'][:500],
+                    image_url=article_data['image_url'][:500] if article_data['image_url'] else None,
                     category=article_data['category'],
                     source_id=source_id,
                     published_at=article_data['published_at']
@@ -112,25 +115,3 @@ class RSSParser:
                 continue
 
         return saved_count
-
-
-RUSSIA_SOURCES = [
-    {
-        "name": "РИА Новости",
-        "url": "https://ria.ru/export/rss2/index.xml",
-        "category": ArticleCategory.GENERAL,
-        "language": "ru"
-    },
-    {
-        "name": "Lenta.ru",
-        "url": "https://lenta.ru/rss/news",
-        "category": ArticleCategory.GENERAL,
-        "language": "ru"
-    },
-    {
-        "name": "Хабр",
-        "url": "https://habr.com/ru/rss/all/all/",
-        "category": ArticleCategory.TECHNOLOGY,
-        "language": "ru"
-    }
-]

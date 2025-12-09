@@ -1,25 +1,50 @@
-from fastapi import FastAPI, Depends, HTTPException, status
+from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from datetime import timedelta
 from typing import List, Optional
 from contextlib import asynccontextmanager
+import asyncio
 
 from app.database import engine, Base, get_db
-from app import crud, auth
+from app import crud, auth, rss_parser
 from app.models import NewsSource, ArticleCategory
 from app.schemas import UserCreate, UserLogin, ArticleFilter, UserPreferenceCreate, ReadHistoryCreate, NewsSourceCreate
+
+
+async def fetch_news_feeds():
+    """Фоновая задача для обновления новостей"""
+    while True:
+        try:
+            async with AsyncSession(engine) as db:
+                sources = await crud.get_news_sources(db)
+                parser = rss_parser.RSSParser()
+
+                for source in sources:
+                    if source.is_active:
+                        print(f"Fetching news from {source.name}...")
+                        saved = await parser.parse_and_save_articles(db, source.id, source.url)
+                        if saved > 0:
+                            print(f"Saved {saved} articles from {source.name}")
+                await parser.close()
+        except Exception as e:
+            print(f"Error fetching news: {e}")
+
+        # Ждем 30 минут перед следующей проверкой
+        await asyncio.sleep(1800)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Запуск NewsHub API...")
     try:
+        # Создаем таблицы
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
         print("✅ Таблицы базы данных созданы")
 
+        # Добавляем источники новостей если их нет
         async with AsyncSession(engine) as session:
             try:
                 result = await session.execute(text("SELECT COUNT(*) FROM news_sources"))
@@ -28,11 +53,11 @@ async def lifespan(app: FastAPI):
                     print("📝 Добавляем источники новостей...")
                     sources = [
                         NewsSource(name="РИА Новости", url="https://ria.ru/export/rss2/index.xml",
-                                   category=ArticleCategory.GENERAL, language="ru"),
-                        NewsSource(name="Lenta.ru", url="https://lenta.ru/rss/news", category=ArticleCategory.GENERAL,
-                                   language="ru"),
+                                   category=ArticleCategory.GENERAL, language="ru", website="https://ria.ru"),
+                        NewsSource(name="Lenta.ru", url="https://lenta.ru/rss/news",
+                                   category=ArticleCategory.GENERAL, language="ru", website="https://lenta.ru"),
                         NewsSource(name="Хабр", url="https://habr.com/ru/rss/all/all/",
-                                   category=ArticleCategory.TECHNOLOGY, language="ru"),
+                                   category=ArticleCategory.TECHNOLOGY, language="ru", website="https://habr.com"),
                     ]
                     for source in sources:
                         session.add(source)
@@ -42,12 +67,24 @@ async def lifespan(app: FastAPI):
                     print(f"✅ Найдено {count} существующих источников")
             except Exception as e:
                 print(f"⚠️ Предупреждение: {e}")
+
+        # Запускаем фоновую задачу для обновления новостей
+        task = asyncio.create_task(fetch_news_feeds())
+
     except Exception as e:
         print(f"❌ Критическая ошибка: {e}")
         import traceback
         traceback.print_exc()
         raise
+
     yield
+
+    # Останавливаем фоновую задачу
+    task.cancel()
+    try:
+        await task
+    except asyncio.CancelledError:
+        pass
     print("👋 Завершение работы...")
 
 
@@ -254,7 +291,21 @@ async def get_personalized_feed(
     ]
 
 
-if __name__ == "__main__":
-    import uvicorn
+@app.post("/api/history/", response_model=dict)
+async def add_read_history(
+        history: ReadHistoryCreate,
+        db: AsyncSession = Depends(get_db),
+        current_user=Depends(auth.get_current_active_user)
+):
+    result = await crud.create_read_history(db, current_user.id, history)
+    if result is None:
+        return {"message": "Запись уже существует"}
+    return {"message": "Запись добавлена в историю"}
 
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+@app.get("/api/history/", response_model=List[dict])
+async def get_read_history(
+        db: AsyncSession = Depends(get_db),
+        current_user=Depends(auth.get_current_active_user)
+):
+    return await crud.get_user_read_history(db, current_user.id)

@@ -3,12 +3,14 @@ services:
     name: news-hub-api
     env: python
     region: oregon
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
-        value: sqlite+aiosqlite:///./newshub.db
+        value: postgresql+asyncpg://user:password@host:port/database
       - key: SECRET_KEY
-        value: dev-secret-key-for-kursovaya-2024
+        value: your-secure-secret-key-change-in-production-2024
     healthCheckPath: /health
     autoDeploy: true
