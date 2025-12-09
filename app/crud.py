@@ -36,10 +36,10 @@ async def create_user(db: AsyncSession, user: schemas.UserCreate):
         await db.commit()
         await db.refresh(db_user)
 
-        for category_enum in models.ArticleCategory:
+        for category_enum in schemas.ArticleCategory:
             preference = models.UserPreference(
                 user_id=db_user.id,
-                category=category_enum,
+                category=category_enum.value,
                 weight=0.5
             )
             db.add(preference)
@@ -59,7 +59,7 @@ async def create_user(db: AsyncSession, user: schemas.UserCreate):
 
 async def create_article(db: AsyncSession, article: schemas.ArticleCreate):
     try:
-        article_data = article.model_dump()
+        article_data = article.dict()
 
         article_fields = [c.key for c in models.Article.__table__.columns]
 
@@ -143,7 +143,7 @@ async def update_article(
         article_id: int,
         article_update: schemas.ArticleUpdate
 ):
-    update_data = article_update.model_dump(exclude_unset=True)
+    update_data = article_update.dict(exclude_unset=True)
 
     result = await db.execute(
         update(models.Article)
@@ -179,7 +179,7 @@ async def get_articles_count(db: AsyncSession, filter_params: schemas.ArticleFil
 
 
 async def create_news_source(db: AsyncSession, source: schemas.NewsSourceCreate):
-    db_source = models.NewsSource(**source.model_dump())
+    db_source = models.NewsSource(**source.dict())
     db.add(db_source)
     await db.commit()
     await db.refresh(db_source)
