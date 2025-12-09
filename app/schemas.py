@@ -3,11 +3,9 @@ from typing import Optional, List
 from datetime import datetime
 from enum import Enum
 
-
 class UserRole(str, Enum):
     USER = "USER"
     ADMIN = "ADMIN"
-
 
 class ArticleCategory(str, Enum):
     POLITICS = "POLITICS"
@@ -19,23 +17,21 @@ class ArticleCategory(str, Enum):
     HEALTH = "HEALTH"
     GENERAL = "GENERAL"
 
-
 class UserBase(BaseModel):
     email: EmailStr
     username: str = Field(..., min_length=3, max_length=50)
 
-
 class UserCreate(UserBase):
     password: str = Field(..., min_length=6)
-
 
 class UserLogin(BaseModel):
     email: EmailStr
     password: str
 
-
-class UserResponse(UserBase):
+class UserResponse(BaseModel):
     id: int
+    email: EmailStr
+    username: str
     is_active: bool
     role: UserRole
     created_at: datetime
@@ -43,16 +39,10 @@ class UserResponse(UserBase):
     class Config:
         from_attributes = True
 
-
 class Token(BaseModel):
     access_token: str
     token_type: str
     user: UserResponse
-
-
-class TokenData(BaseModel):
-    email: Optional[str] = None
-
 
 class ArticleBase(BaseModel):
     title: str
@@ -64,10 +54,8 @@ class ArticleBase(BaseModel):
     source_id: int
     published_at: Optional[datetime] = None
 
-
 class ArticleCreate(ArticleBase):
     pass
-
 
 class ArticleUpdate(BaseModel):
     title: Optional[str] = None
@@ -75,15 +63,21 @@ class ArticleUpdate(BaseModel):
     content: Optional[str] = None
     category: Optional[ArticleCategory] = None
 
-
-class ArticleResponse(ArticleBase):
+class ArticleResponse(BaseModel):
     id: int
+    title: str
+    summary: Optional[str]
+    content: str
+    source_url: str
+    image_url: Optional[str]
+    category: ArticleCategory
+    source_id: int
+    published_at: Optional[datetime]
     created_at: datetime
     is_read: Optional[bool] = False
 
     class Config:
         from_attributes = True
-
 
 class ArticleFilter(BaseModel):
     category: Optional[ArticleCategory] = None
@@ -94,7 +88,6 @@ class ArticleFilter(BaseModel):
     limit: int = 20
     offset: int = 0
 
-
 class NewsSourceBase(BaseModel):
     name: str
     url: str
@@ -102,52 +95,53 @@ class NewsSourceBase(BaseModel):
     category: ArticleCategory = ArticleCategory.GENERAL
     language: str = "ru"
 
-
 class NewsSourceCreate(NewsSourceBase):
     pass
 
-
-class NewsSourceResponse(NewsSourceBase):
+class NewsSourceResponse(BaseModel):
     id: int
+    name: str
+    url: str
+    website: Optional[str]
+    category: ArticleCategory
+    language: str
     is_active: bool
     created_at: datetime
 
     class Config:
         from_attributes = True
 
-
 class UserPreferenceBase(BaseModel):
     category: ArticleCategory
     weight: float = Field(0.0, ge=0.0, le=1.0)
 
-
 class UserPreferenceCreate(UserPreferenceBase):
     pass
 
-
-class UserPreferenceResponse(UserPreferenceBase):
+class UserPreferenceResponse(BaseModel):
     id: int
     user_id: int
+    category: ArticleCategory
+    weight: float
     created_at: datetime
     updated_at: Optional[datetime]
 
     class Config:
         from_attributes = True
 
-
 class ReadHistoryBase(BaseModel):
     article_id: int
     read_time_seconds: Optional[int] = None
 
-
 class ReadHistoryCreate(ReadHistoryBase):
     pass
 
-
-class ReadHistoryResponse(ReadHistoryBase):
+class ReadHistoryResponse(BaseModel):
     id: int
     user_id: int
+    article_id: int
     read_at: datetime
+    read_time_seconds: Optional[int]
     article_title: str
     article_category: ArticleCategory
 

@@ -4,7 +4,6 @@ from datetime import datetime
 from typing import List, Dict, Optional
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
-
 from app import crud, schemas
 from app.models import ArticleCategory
 
@@ -24,7 +23,6 @@ class RSSParser:
 
     def _categorize_article(self, title: str, summary: str = "") -> ArticleCategory:
         text_content = (title + " " + summary).lower()
-
         category_keywords = {
             ArticleCategory.POLITICS: ['выборы', 'президент', 'правительство', 'политика', 'путин', 'депутат'],
             ArticleCategory.TECHNOLOGY: ['технология', 'искусственный интеллект', 'стартап', 'гаджет',
@@ -37,7 +35,6 @@ class RSSParser:
         }
 
         scores = {category: 0 for category in ArticleCategory}
-
         for category, keywords in category_keywords.items():
             for keyword in keywords:
                 if keyword in text_content:
@@ -45,18 +42,14 @@ class RSSParser:
 
         if max(scores.values()) > 0:
             return max(scores, key=scores.get)
-
         return ArticleCategory.GENERAL
 
     async def parse_feed(self, rss_url: str) -> List[Dict]:
         session = await self._get_session()
-
         try:
             async with session.get(rss_url, timeout=10) as response:
                 content = await response.text()
-
             feed = feedparser.parse(content)
-
             articles = []
             for entry in feed.entries[:5]:
                 published = None
@@ -83,19 +76,12 @@ class RSSParser:
                             break
 
                 articles.append(article_data)
-
             return articles
-
         except Exception as e:
             print(f"Error parsing RSS feed {rss_url}: {e}")
             return []
 
-    async def parse_and_save_articles(
-            self,
-            db: AsyncSession,
-            source_id: int,
-            rss_url: str
-    ) -> int:
+    async def parse_and_save_articles(self, db: AsyncSession, source_id: int, rss_url: str) -> int:
         articles_data = await self.parse_feed(rss_url)
         saved_count = 0
 
@@ -105,7 +91,6 @@ class RSSParser:
                     text("SELECT id FROM articles WHERE source_url = :source_url"),
                     {"source_url": article_data['source_url']}
                 )
-
                 if result.scalar_one_or_none():
                     continue
 
@@ -122,7 +107,6 @@ class RSSParser:
 
                 await crud.create_article(db, article)
                 saved_count += 1
-
             except Exception as e:
                 print(f"Error saving article: {e}")
                 continue

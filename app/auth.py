@@ -8,7 +8,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import os
 import hashlib
 from dotenv import load_dotenv
-
 from app.database import get_db
 from app import crud
 
@@ -21,18 +20,15 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 30
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/api/auth/login")
 
-
 def get_password_hash(password: str) -> str:
     salt = "news-hub-secure-salt-2024"
     salted_password = password + salt
     return hashlib.sha256(salted_password.encode()).hexdigest()
 
-
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     salt = "news-hub-secure-salt-2024"
     salted_password = plain_password + salt
     return hashlib.sha256(salted_password.encode()).hexdigest() == hashed_password
-
 
 async def authenticate_user(db: AsyncSession, email: str, password: str):
     user = await crud.get_user_by_email(db, email)
@@ -42,18 +38,14 @@ async def authenticate_user(db: AsyncSession, email: str, password: str):
         return False
     return user
 
-
 def create_access_token(data: dict, expires_delta: Optional[timedelta] = None):
     to_encode = data.copy()
     if expires_delta:
         expire = datetime.utcnow() + expires_delta
     else:
         expire = datetime.utcnow() + timedelta(minutes=15)
-
     to_encode.update({"exp": expire})
-    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
-    return encoded_jwt
-
+    return jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
 
 async def get_current_user(
         token: str = Depends(oauth2_scheme),
@@ -64,7 +56,6 @@ async def get_current_user(
         detail="Could not validate credentials",
         headers={"WWW-Authenticate": "Bearer"},
     )
-
     try:
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         email: str = payload.get("sub")
@@ -72,29 +63,18 @@ async def get_current_user(
             raise credentials_exception
     except JWTError:
         raise credentials_exception
-
     user = await crud.get_user_by_email(db, email=email)
     if user is None:
         raise credentials_exception
+    return user
 
-    return {
-        "id": user.id,
-        "email": user.email,
-        "username": user.username,
-        "is_active": user.is_active,
-        "role": user.role,
-        "created_at": user.created_at
-    }
-
-
-async def get_current_active_user(current_user: dict = Depends(get_current_user)):
-    if not current_user["is_active"]:
+async def get_current_active_user(current_user = Depends(get_current_user)):
+    if not current_user.is_active:
         raise HTTPException(status_code=400, detail="Inactive user")
     return current_user
 
-
-async def get_current_admin_user(current_user: dict = Depends(get_current_active_user)):
-    if current_user["role"] != "ADMIN":
+async def get_current_admin_user(current_user = Depends(get_current_active_user)):
+    if current_user.role != "ADMIN":
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Not enough permissions"

@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, BackgroundTasks, status
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -7,16 +7,14 @@ from typing import List, Optional
 from contextlib import asynccontextmanager
 
 from app.database import engine, Base, get_db
-from app.models import NewsSource, ArticleCategory
-from app.schemas import UserCreate, UserLogin, ArticleFilter, ArticleCreate, ArticleUpdate, UserPreferenceCreate, \
-    ReadHistoryCreate, NewsSourceCreate
 from app import crud, auth
+from app.models import NewsSource, ArticleCategory
+from app.schemas import UserCreate, UserLogin, ArticleFilter, UserPreferenceCreate, ReadHistoryCreate, NewsSourceCreate
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     print("🚀 Запуск NewsHub API...")
-
     try:
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
@@ -26,51 +24,31 @@ async def lifespan(app: FastAPI):
             try:
                 result = await session.execute(text("SELECT COUNT(*) FROM news_sources"))
                 count = result.scalar()
-
                 if count == 0:
                     print("📝 Добавляем источники новостей...")
                     sources = [
-                        {"name": "РИА Новости", "url": "https://ria.ru/export/rss2/index.xml",
-                         "category": ArticleCategory.GENERAL, "language": "ru"},
-                        {"name": "Lenta.ru", "url": "https://lenta.ru/rss/news", "category": ArticleCategory.GENERAL,
-                         "language": "ru"},
-                        {"name": "Хабр", "url": "https://habr.com/ru/rss/all/all/",
-                         "category": ArticleCategory.TECHNOLOGY, "language": "ru"}
+                        NewsSource(name="РИА Новости", url="https://ria.ru/export/rss2/index.xml",
+                                   category=ArticleCategory.GENERAL, language="ru"),
+                        NewsSource(name="Lenta.ru", url="https://lenta.ru/rss/news", category=ArticleCategory.GENERAL,
+                                   language="ru"),
+                        NewsSource(name="Хабр", url="https://habr.com/ru/rss/all/all/",
+                                   category=ArticleCategory.TECHNOLOGY, language="ru"),
                     ]
-
-                    for source_data in sources:
-                        source = NewsSource(
-                            name=source_data["name"],
-                            url=source_data["url"],
-                            category=source_data["category"],
-                            language=source_data["language"]
-                        )
+                    for source in sources:
                         session.add(source)
                     await session.commit()
                     print(f"✅ Добавлено {len(sources)} источников")
                 else:
                     print(f"✅ Найдено {count} существующих источников")
             except Exception as e:
-                print(f"⚠️ Предупреждение при добавлении источников: {e}")
-                await session.rollback()
-
-        print("✅ Инициализация завершена")
-        print("🌐 API доступно")
-
+                print(f"⚠️ Предупреждение: {e}")
     except Exception as e:
-        print(f"❌ Критическая ошибка при запуске: {e}")
+        print(f"❌ Критическая ошибка: {e}")
         import traceback
         traceback.print_exc()
         raise
-
     yield
-
     print("👋 Завершение работы...")
-    try:
-        await engine.dispose()
-        print("✅ Ресурсы освобождены")
-    except:
-        pass
 
 
 app = FastAPI(
@@ -93,11 +71,7 @@ app.add_middleware(
 
 @app.get("/")
 async def root():
-    return {
-        "message": "Добро пожаловать в NewsHub API",
-        "version": "1.0.0",
-        "docs": "/docs"
-    }
+    return {"message": "Добро пожаловать в NewsHub API", "version": "1.0.0", "docs": "/docs"}
 
 
 @app.get("/health")
@@ -107,28 +81,28 @@ async def health_check():
 
 
 @app.post("/api/auth/register", response_model=dict)
-async def register(
-        user: UserCreate,
-        db: AsyncSession = Depends(get_db)
-):
+async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
     db_user = await crud.get_user_by_email(db, email=user.email)
     if db_user:
         raise HTTPException(status_code=400, detail="Email уже зарегистрирован")
-
     db_user = await crud.get_user_by_username(db, username=user.username)
     if db_user:
         raise HTTPException(status_code=400, detail="Имя пользователя уже занято")
 
-    return await crud.create_user(db, user=user)
+    result = await crud.create_user(db, user)
+    return {
+        "id": result.id,
+        "email": result.email,
+        "username": result.username,
+        "is_active": result.is_active,
+        "role": result.role,
+        "created_at": result.created_at
+    }
 
 
 @app.post("/api/auth/login", response_model=dict)
-async def login(
-        login_data: UserLogin,
-        db: AsyncSession = Depends(get_db)
-):
+async def login(login_data: UserLogin, db: AsyncSession = Depends(get_db)):
     user = await auth.authenticate_user(db, login_data.email, login_data.password)
-
     if not user:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -156,10 +130,15 @@ async def login(
 
 
 @app.get("/api/auth/me", response_model=dict)
-async def read_users_me(
-        current_user: dict = Depends(auth.get_current_active_user)
-):
-    return current_user
+async def read_users_me(current_user=Depends(auth.get_current_active_user)):
+    return {
+        "id": current_user.id,
+        "email": current_user.email,
+        "username": current_user.username,
+        "is_active": current_user.is_active,
+        "role": current_user.role,
+        "created_at": current_user.created_at
+    }
 
 
 @app.get("/api/articles/", response_model=List[dict])
@@ -170,7 +149,7 @@ async def read_articles(
         limit: int = 20,
         offset: int = 0,
         db: AsyncSession = Depends(get_db),
-        current_user: dict = Depends(auth.get_current_active_user)
+        current_user=Depends(auth.get_current_active_user)
 ):
     filter_params = ArticleFilter(
         category=category,
@@ -179,21 +158,36 @@ async def read_articles(
         limit=limit,
         offset=offset
     )
-    articles = await crud.get_articles(db, filter_params, current_user["id"])
-    return articles
+    articles = await crud.get_articles(db, filter_params, current_user.id)
+
+    return [
+        {
+            "id": a.id,
+            "title": a.title,
+            "summary": a.summary,
+            "content": a.content,
+            "source_url": a.source_url,
+            "image_url": a.image_url,
+            "category": a.category,
+            "source_id": a.source_id,
+            "published_at": a.published_at,
+            "created_at": a.created_at,
+            "is_read": a.is_read
+        }
+        for a in articles
+    ]
 
 
 @app.get("/api/articles/{article_id}", response_model=dict)
 async def read_article(
         article_id: int,
         db: AsyncSession = Depends(get_db),
-        current_user: dict = Depends(auth.get_current_active_user)
+        current_user=Depends(auth.get_current_active_user)
 ):
     article = await crud.get_article(db, article_id)
     if article is None:
         raise HTTPException(status_code=404, detail="Статья не найдена")
 
-    # Convert to dict
     article_dict = {
         "id": article.id,
         "title": article.title,
@@ -209,125 +203,9 @@ async def read_article(
     }
 
     if article.source:
-        article_dict["source"] = {
-            "id": article.source.id,
-            "name": article.source.name
-        }
+        article_dict["source"] = {"id": article.source.id, "name": article.source.name}
 
     return article_dict
-
-
-@app.put("/api/articles/{article_id}", response_model=dict)
-async def update_article_endpoint(
-        article_id: int,
-        article_update: ArticleUpdate,
-        db: AsyncSession = Depends(get_db),
-        current_user: dict = Depends(auth.get_current_admin_user)
-):
-    article = await crud.update_article(db, article_id, article_update)
-    if article is None:
-        raise HTTPException(status_code=404, detail="Статья не найдена")
-    return article
-
-
-@app.delete("/api/articles/{article_id}")
-async def delete_article_endpoint(
-        article_id: int,
-        db: AsyncSession = Depends(get_db),
-        current_user: dict = Depends(auth.get_current_admin_user)
-):
-    success = await crud.delete_article(db, article_id)
-    if not success:
-        raise HTTPException(status_code=404, detail="Статья не найдена")
-    return {"message": "Статья успешно удалена"}
-
-
-@app.get("/api/user/preferences", response_model=List[dict])
-async def get_preferences(
-        db: AsyncSession = Depends(get_db),
-        current_user: dict = Depends(auth.get_current_active_user)
-):
-    preferences = await crud.get_user_preferences(db, current_user["id"])
-    return [
-        {
-            "id": p.id,
-            "user_id": p.user_id,
-            "category": p.category,
-            "weight": p.weight,
-            "created_at": p.created_at,
-            "updated_at": p.updated_at
-        }
-        for p in preferences
-    ]
-
-
-@app.post("/api/user/preferences", response_model=dict)
-async def update_preference(
-        preference: UserPreferenceCreate,
-        db: AsyncSession = Depends(get_db),
-        current_user: dict = Depends(auth.get_current_active_user)
-):
-    result = await crud.update_user_preference(db, current_user["id"], preference)
-    return {
-        "id": result.id,
-        "user_id": result.user_id,
-        "category": result.category,
-        "weight": result.weight,
-        "created_at": result.created_at,
-        "updated_at": result.updated_at
-    }
-
-
-@app.post("/api/articles/{article_id}/read")
-async def mark_as_read(
-        article_id: int,
-        read_time: int = None,
-        db: AsyncSession = Depends(get_db),
-        current_user: dict = Depends(auth.get_current_active_user)
-):
-    history = ReadHistoryCreate(
-        article_id=article_id,
-        read_time_seconds=read_time
-    )
-    result = await crud.create_read_history(db, current_user["id"], history)
-
-    if result is None:
-        return {"message": "Статья уже отмечена как прочитанная"}
-
-    return {"message": "Статья отмечена как прочитанная"}
-
-
-@app.get("/api/user/history", response_model=List[dict])
-async def get_read_history(
-        db: AsyncSession = Depends(get_db),
-        current_user: dict = Depends(auth.get_current_active_user)
-):
-    history = await crud.get_user_read_history(db, current_user["id"])
-    return history
-
-
-@app.get("/api/feed/personal", response_model=List[dict])
-async def get_personalized_feed(
-        db: AsyncSession = Depends(get_db),
-        current_user: dict = Depends(auth.get_current_active_user)
-):
-    articles = await crud.get_personalized_feed(db, current_user["id"])
-    return [
-        {
-            "id": a.id,
-            "title": a.title,
-            "summary": a.summary,
-            "content": a.content,
-            "source_url": a.source_url,
-            "image_url": a.image_url,
-            "category": a.category,
-            "source_id": a.source_id,
-            "published_at": a.published_at,
-            "created_at": a.created_at,
-            "is_read": False
-        }
-        for a in articles
-    ]
 
 
 @app.get("/api/sources/", response_model=List[dict])
@@ -352,23 +230,28 @@ async def read_sources(
     ]
 
 
-@app.post("/api/sources/", response_model=dict)
-async def create_source(
-        source: NewsSourceCreate,
+@app.get("/api/feed/personal", response_model=List[dict])
+async def get_personalized_feed(
         db: AsyncSession = Depends(get_db),
-        current_user: dict = Depends(auth.get_current_admin_user)
+        current_user=Depends(auth.get_current_active_user)
 ):
-    result = await crud.create_news_source(db, source)
-    return {
-        "id": result.id,
-        "name": result.name,
-        "url": result.url,
-        "website": result.website,
-        "category": result.category,
-        "language": result.language,
-        "is_active": result.is_active,
-        "created_at": result.created_at
-    }
+    articles = await crud.get_personalized_feed(db, current_user.id)
+    return [
+        {
+            "id": a.id,
+            "title": a.title,
+            "summary": a.summary,
+            "content": a.content,
+            "source_url": a.source_url,
+            "image_url": a.image_url,
+            "category": a.category,
+            "source_id": a.source_id,
+            "published_at": a.published_at,
+            "created_at": a.created_at,
+            "is_read": False
+        }
+        for a in articles
+    ]
 
 
 if __name__ == "__main__":

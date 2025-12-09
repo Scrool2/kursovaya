@@ -2,14 +2,12 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.orm import DeclarativeBase
 import os
 
-# Используем PostgreSQL на Render, SQLite локально
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "sqlite+aiosqlite:///./newshub.db"
 )
 
-# Конвертируем postgres:// в postgresql+asyncpg:// для PostgreSQL
-if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://")
 
 engine = create_async_engine(

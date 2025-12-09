@@ -4,13 +4,11 @@ services:
     env: python
     region: oregon
     buildCommand: pip install -r requirements.txt
-    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
     envVars:
       - key: DATABASE_URL
         value: sqlite+aiosqlite:///./newshub.db
       - key: SECRET_KEY
         value: dev-secret-key-for-kursovaya-2024
-      - key: PYTHON_VERSION
-        value: 3.11.8
     healthCheckPath: /health
     autoDeploy: true
