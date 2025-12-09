@@ -1,4 +1,4 @@
-from fastapi import FastAPI, Depends, HTTPException, status, BackgroundTasks
+from fastapi import FastAPI, Depends, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
@@ -7,50 +7,65 @@ from typing import List, Optional
 from contextlib import asynccontextmanager
 import asyncio
 
-from app.database import engine, Base, get_db
+from app.database import engine, Base, get_db, AsyncSessionLocal
 from app import crud, auth, rss_parser
 from app.models import NewsSource, ArticleCategory
-from app.schemas import UserCreate, UserLogin, ArticleFilter, UserPreferenceCreate, ReadHistoryCreate, NewsSourceCreate
+from app.schemas import UserCreate, UserLogin, ArticleFilter, ReadHistoryCreate
 
+def serialize_article(article) -> dict:
+    return {
+        "id": article.id,
+        "title": article.title,
+        "summary": article.summary,
+        "content": article.content,
+        "source_url": article.source_url,
+        "image_url": article.image_url,
+        "category": article.category,
+        "source_id": article.source_id,
+        "published_at": article.published_at,
+        "created_at": article.created_at,
+        "is_read": getattr(article, 'is_read', False)
+    }
 
 async def fetch_news_feeds():
-    """Фоновая задача для обновления новостей"""
-    while True:
-        try:
-            async with AsyncSession(engine) as db:
-                sources = await crud.get_news_sources(db)
-                parser = rss_parser.RSSParser()
+    parser = rss_parser.RSSParser()
+    try:
+        while True:
+            try:
+                async with AsyncSessionLocal() as db:
+                    sources = await crud.get_news_sources(db)
+                    
+                    for source in sources:
+                        if source.is_active:
+                            try:
+                                print(f"Fetching news from {source.name}...")
+                                saved = await parser.parse_and_save_articles(db, source.id, source.url)
+                                if saved > 0:
+                                    print(f"Saved {saved} articles from {source.name}")
+                            except Exception as e:
+                                print(f"Error fetching from {source.name}: {e}")
+                                continue
+            except Exception as e:
+                print(f"Error fetching news: {e}")
 
-                for source in sources:
-                    if source.is_active:
-                        print(f"Fetching news from {source.name}...")
-                        saved = await parser.parse_and_save_articles(db, source.id, source.url)
-                        if saved > 0:
-                            print(f"Saved {saved} articles from {source.name}")
-                await parser.close()
-        except Exception as e:
-            print(f"Error fetching news: {e}")
-
-        # Ждем 30 минут перед следующей проверкой
-        await asyncio.sleep(1800)
-
+            await asyncio.sleep(1800)
+    finally:
+        await parser.close()
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    print("🚀 Запуск NewsHub API...")
+    print("Starting NewsHub API...")
     try:
-        # Создаем таблицы
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
-        print("✅ Таблицы базы данных созданы")
+        print("Database tables created")
 
-        # Добавляем источники новостей если их нет
-        async with AsyncSession(engine) as session:
+        async with AsyncSessionLocal() as session:
             try:
                 result = await session.execute(text("SELECT COUNT(*) FROM news_sources"))
                 count = result.scalar()
                 if count == 0:
-                    print("📝 Добавляем источники новостей...")
+                    print("Adding news sources...")
                     sources = [
                         NewsSource(name="РИА Новости", url="https://ria.ru/export/rss2/index.xml",
                                    category=ArticleCategory.GENERAL, language="ru", website="https://ria.ru"),
@@ -62,31 +77,28 @@ async def lifespan(app: FastAPI):
                     for source in sources:
                         session.add(source)
                     await session.commit()
-                    print(f"✅ Добавлено {len(sources)} источников")
+                    print(f"Added {len(sources)} sources")
                 else:
-                    print(f"✅ Найдено {count} существующих источников")
+                    print(f"Found {count} existing sources")
             except Exception as e:
-                print(f"⚠️ Предупреждение: {e}")
+                print(f"Warning: {e}")
 
-        # Запускаем фоновую задачу для обновления новостей
         task = asyncio.create_task(fetch_news_feeds())
 
     except Exception as e:
-        print(f"❌ Критическая ошибка: {e}")
+        print(f"Critical error: {e}")
         import traceback
         traceback.print_exc()
         raise
 
     yield
 
-    # Останавливаем фоновую задачу
     task.cancel()
     try:
         await task
     except asyncio.CancelledError:
         pass
-    print("👋 Завершение работы...")
-
+    print("Shutting down...")
 
 app = FastAPI(
     title="NewsHub API",
@@ -105,17 +117,14 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
 @app.get("/")
 async def root():
     return {"message": "Добро пожаловать в NewsHub API", "version": "1.0.0", "docs": "/docs"}
-
 
 @app.get("/health")
 async def health_check():
     from datetime import datetime
     return {"status": "healthy", "timestamp": datetime.now().isoformat()}
-
 
 @app.post("/api/auth/register", response_model=dict)
 async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
@@ -135,7 +144,6 @@ async def register(user: UserCreate, db: AsyncSession = Depends(get_db)):
         "role": result.role,
         "created_at": result.created_at
     }
-
 
 @app.post("/api/auth/login", response_model=dict)
 async def login(login_data: UserLogin, db: AsyncSession = Depends(get_db)):
@@ -165,7 +173,6 @@ async def login(login_data: UserLogin, db: AsyncSession = Depends(get_db)):
         }
     }
 
-
 @app.get("/api/auth/me", response_model=dict)
 async def read_users_me(current_user=Depends(auth.get_current_active_user)):
     return {
@@ -177,7 +184,6 @@ async def read_users_me(current_user=Depends(auth.get_current_active_user)):
         "created_at": current_user.created_at
     }
 
-
 @app.get("/api/articles/", response_model=List[dict])
 async def read_articles(
         category: Optional[str] = None,
@@ -188,6 +194,8 @@ async def read_articles(
         db: AsyncSession = Depends(get_db),
         current_user=Depends(auth.get_current_active_user)
 ):
+    limit = min(max(1, limit), 100)
+    offset = max(0, offset)
     filter_params = ArticleFilter(
         category=category,
         source_id=source_id,
@@ -196,24 +204,7 @@ async def read_articles(
         offset=offset
     )
     articles = await crud.get_articles(db, filter_params, current_user.id)
-
-    return [
-        {
-            "id": a.id,
-            "title": a.title,
-            "summary": a.summary,
-            "content": a.content,
-            "source_url": a.source_url,
-            "image_url": a.image_url,
-            "category": a.category,
-            "source_id": a.source_id,
-            "published_at": a.published_at,
-            "created_at": a.created_at,
-            "is_read": a.is_read
-        }
-        for a in articles
-    ]
-
+    return [serialize_article(a) for a in articles]
 
 @app.get("/api/articles/{article_id}", response_model=dict)
 async def read_article(
@@ -225,25 +216,11 @@ async def read_article(
     if article is None:
         raise HTTPException(status_code=404, detail="Статья не найдена")
 
-    article_dict = {
-        "id": article.id,
-        "title": article.title,
-        "summary": article.summary,
-        "content": article.content,
-        "source_url": article.source_url,
-        "image_url": article.image_url,
-        "category": article.category,
-        "source_id": article.source_id,
-        "published_at": article.published_at,
-        "created_at": article.created_at,
-        "is_read": article.is_read if hasattr(article, 'is_read') else False
-    }
-
+    article_dict = serialize_article(article)
     if article.source:
         article_dict["source"] = {"id": article.source.id, "name": article.source.name}
 
     return article_dict
-
 
 @app.get("/api/sources/", response_model=List[dict])
 async def read_sources(
@@ -251,6 +228,8 @@ async def read_sources(
         limit: int = 100,
         db: AsyncSession = Depends(get_db)
 ):
+    limit = min(max(1, limit), 100)
+    skip = max(0, skip)
     sources = await crud.get_news_sources(db, skip=skip, limit=limit)
     return [
         {
@@ -266,30 +245,13 @@ async def read_sources(
         for s in sources
     ]
 
-
 @app.get("/api/feed/personal", response_model=List[dict])
 async def get_personalized_feed(
         db: AsyncSession = Depends(get_db),
         current_user=Depends(auth.get_current_active_user)
 ):
     articles = await crud.get_personalized_feed(db, current_user.id)
-    return [
-        {
-            "id": a.id,
-            "title": a.title,
-            "summary": a.summary,
-            "content": a.content,
-            "source_url": a.source_url,
-            "image_url": a.image_url,
-            "category": a.category,
-            "source_id": a.source_id,
-            "published_at": a.published_at,
-            "created_at": a.created_at,
-            "is_read": False
-        }
-        for a in articles
-    ]
-
+    return [serialize_article(a) for a in articles]
 
 @app.post("/api/history/", response_model=dict)
 async def add_read_history(
@@ -301,7 +263,6 @@ async def add_read_history(
     if result is None:
         return {"message": "Запись уже существует"}
     return {"message": "Запись добавлена в историю"}
-
 
 @app.get("/api/history/", response_model=List[dict])
 async def get_read_history(

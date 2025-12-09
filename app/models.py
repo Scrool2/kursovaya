@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, Float, Enum
+from sqlalchemy import Column, Integer, String, Text, DateTime, ForeignKey, Boolean, Float, Enum, Index
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.database import Base
@@ -50,29 +50,43 @@ class Article(Base):
     content = Column(Text)
     source_url = Column(String, nullable=False, unique=True)
     image_url = Column(String)
-    category = Column(Enum(ArticleCategory), default=ArticleCategory.GENERAL)
-    published_at = Column(DateTime(timezone=True))
-    source_id = Column(Integer, ForeignKey("news_sources.id"))
+    category = Column(Enum(ArticleCategory), default=ArticleCategory.GENERAL, index=True)
+    published_at = Column(DateTime(timezone=True), index=True)
+    source_id = Column(Integer, ForeignKey("news_sources.id"), index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     source = relationship("NewsSource")
     read_history = relationship("ReadHistory", back_populates="article", cascade="all, delete-orphan")
+    
+    __table_args__ = (
+        Index('idx_article_category_published', 'category', 'published_at'),
+        Index('idx_article_source_published', 'source_id', 'published_at'),
+    )
 
 class UserPreference(Base):
     __tablename__ = "user_preferences"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    category = Column(Enum(ArticleCategory), nullable=False)
-    weight = Column(Float, default=1.0)
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    category = Column(Enum(ArticleCategory), nullable=False, index=True)
+    weight = Column(Float, default=1.0, index=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     updated_at = Column(DateTime(timezone=True), onupdate=func.now())
     user = relationship("User", back_populates="preferences")
+    
+    __table_args__ = (
+        Index('idx_user_preference_user_category', 'user_id', 'category', unique=True),
+        Index('idx_user_preference_weight', 'user_id', 'weight'),
+    )
 
 class ReadHistory(Base):
     __tablename__ = "read_history"
     id = Column(Integer, primary_key=True, index=True)
-    user_id = Column(Integer, ForeignKey("users.id"))
-    article_id = Column(Integer, ForeignKey("articles.id"))
-    read_at = Column(DateTime(timezone=True), server_default=func.now())
+    user_id = Column(Integer, ForeignKey("users.id"), index=True)
+    article_id = Column(Integer, ForeignKey("articles.id"), index=True)
+    read_at = Column(DateTime(timezone=True), server_default=func.now(), index=True)
     read_time_seconds = Column(Integer)
     user = relationship("User", back_populates="read_history")
     article = relationship("Article", back_populates="read_history")
+    
+    __table_args__ = (
+        Index('idx_read_history_user_article', 'user_id', 'article_id', unique=True),
+    )

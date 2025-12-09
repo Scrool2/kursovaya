@@ -3,10 +3,9 @@ import feedparser
 from datetime import datetime
 from typing import List, Dict
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import text
+from sqlalchemy import select
 from app import crud, schemas
-from app.models import ArticleCategory
-
+from app.models import ArticleCategory, Article
 
 class RSSParser:
     def __init__(self):
@@ -47,7 +46,8 @@ class RSSParser:
     async def parse_feed(self, rss_url: str) -> List[Dict]:
         session = await self._get_session()
         try:
-            async with session.get(rss_url, timeout=10) as response:
+            async with session.get(rss_url, timeout=aiohttp.ClientTimeout(total=10)) as response:
+                response.raise_for_status()
                 content = await response.text()
             feed = feedparser.parse(content)
             articles = []
@@ -80,22 +80,27 @@ class RSSParser:
         except Exception as e:
             print(f"Error parsing RSS feed {rss_url}: {e}")
             return []
-        finally:
-            await self.close()
 
     async def parse_and_save_articles(self, db: AsyncSession, source_id: int, rss_url: str) -> int:
         articles_data = await self.parse_feed(rss_url)
+        if not articles_data:
+            return 0
+        
         saved_count = 0
+        
+        source_urls = [article_data['source_url'] for article_data in articles_data]
+        if source_urls:
+            existing_result = await db.execute(
+                select(Article.source_url).where(Article.source_url.in_(source_urls))
+            )
+            existing_urls = {row[0] for row in existing_result}
+        else:
+            existing_urls = set()
 
         for article_data in articles_data:
             try:
-                result = await db.execute(
-                    text("SELECT id FROM articles WHERE source_url = :source_url"),
-                    {"source_url": article_data['source_url']}
-                )
-                if result.scalar_one_or_none():
+                if article_data['source_url'] in existing_urls:
                     continue
-
 
                 article = schemas.ArticleCreate(
                     title=article_data['title'][:500],
