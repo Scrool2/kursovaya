@@ -1,3 +1,5 @@
+from http.client import HTTPException
+
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, update, delete, func, or_
 from sqlalchemy.orm import selectinload
@@ -22,26 +24,42 @@ async def get_user_by_username(db: AsyncSession, username: str):
 
 
 async def create_user(db: AsyncSession, user: schemas.UserCreate):
-    hashed_password = get_password_hash(user.password)
-    db_user = models.User(
-        email=user.email,
-        username=user.username,
-        hashed_password=hashed_password
-    )
-    db.add(db_user)
-    await db.commit()
-    await db.refresh(db_user)
+    """Создать пользователя с предпочтениями"""
+    try:
+        hashed_password = get_password_hash(user.password)
 
-    for category in schemas.ArticleCategory:
-        preference = models.UserPreference(
-            user_id=db_user.id,
-            category=category,
-            weight=0.5
+        db_user = models.User(
+            email=user.email,
+            username=user.username,
+            hashed_password=hashed_password
         )
-        db.add(preference)
 
-    await db.commit()
-    return db_user
+        db.add(db_user)
+        await db.commit()
+        await db.refresh(db_user)
+
+        from app.schemas import ArticleCategory
+
+        for category_enum in ArticleCategory:
+            preference = models.UserPreference(
+                user_id=db_user.id,
+                category=category_enum.value,
+                weight=0.5
+            )
+            db.add(preference)
+
+        await db.commit()
+        await db.refresh(db_user)
+
+        return db_user
+
+    except Exception as e:
+        await db.rollback()
+        print(f"Ошибка при создании пользователя: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Ошибка при создании пользователя: {str(e)}"
+        )
 
 
 # Article CRUD
