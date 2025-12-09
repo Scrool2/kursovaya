@@ -4,9 +4,9 @@
     <option name="autoReloadType" value="SELECTIVE" />
   </component>
   <component name="ChangeListManager">
-    <list default="true" id="38e22c00-0655-487c-811b-e175a5a4f576" name="Changes" comment="add rss_parser.py">
+    <list default="true" id="38e22c00-0655-487c-811b-e175a5a4f576" name="Changes" comment="update parser controller">
       <change beforePath="$PROJECT_DIR$/.idea/workspace.xml" beforeDir="false" afterPath="$PROJECT_DIR$/.idea/workspace.xml" afterDir="false" />
-      <change beforePath="$PROJECT_DIR$/app/main.py" beforeDir="false" afterPath="$PROJECT_DIR$/app/main.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/requirements.txt" beforeDir="false" afterPath="$PROJECT_DIR$/requirements.txt" afterDir="false" />
     </list>
     <option name="SHOW_DIALOG" value="false" />
     <option name="HIGHLIGHT_CONFLICTS" value="true" />
@@ -141,7 +141,15 @@
       <option name="project" value="LOCAL" />
       <updated>1765307983879</updated>
     </task>
-    <option name="localTasksCounter" value="6" />
+    <task id="LOCAL-00006" summary="update parser controller">
+      <option name="closed" value="true" />
+      <created>1765309631122</created>
+      <option name="number" value="00006" />
+      <option name="presentableId" value="LOCAL-00006" />
+      <option name="project" value="LOCAL" />
+      <updated>1765309631122</updated>
+    </task>
+    <option name="localTasksCounter" value="7" />
     <servers />
   </component>
   <component name="VcsManagerConfiguration">
@@ -149,6 +157,7 @@
     <MESSAGE value="add schemas.py" />
     <MESSAGE value="add crud.py and database." />
     <MESSAGE value="add rss_parser.py" />
-    <option name="LAST_COMMIT_MESSAGE" value="add rss_parser.py" />
+    <MESSAGE value="update parser controller" />
+    <option name="LAST_COMMIT_MESSAGE" value="update parser controller" />
   </component>
 </project>
