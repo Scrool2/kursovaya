@@ -115,7 +115,7 @@ class RSSParser:
                     content=article_data['content'],
                     source_url=article_data['source_url'],
                     image_url=article_data['image_url'],
-                    category=article_data['category'].value,
+                    category=article_data['category'],
                     source_id=source_id,
                     published_at=article_data['published_at']
                 )

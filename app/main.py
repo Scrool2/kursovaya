@@ -3,7 +3,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import text
 from datetime import timedelta
-from typing import List
+from typing import List, Optional
 from contextlib import asynccontextmanager
 
 from app import crud, schemas, auth, models
@@ -146,10 +146,21 @@ async def read_users_me(
 
 @app.get("/api/articles/", response_model=List[schemas.ArticleResponse])
 async def read_articles(
-        filter_params: schemas.ArticleFilter = Depends(),
+        category: Optional[schemas.ArticleCategory] = None,
+        source_id: Optional[int] = None,
+        search: Optional[str] = None,
+        limit: int = 20,
+        offset: int = 0,
         db: AsyncSession = Depends(get_db),
         current_user: schemas.UserResponse = Depends(auth.get_current_active_user)
 ):
+    filter_params = schemas.ArticleFilter(
+        category=category,
+        source_id=source_id,
+        search=search,
+        limit=limit,
+        offset=offset
+    )
     return await crud.get_articles(db, filter_params, current_user.id)
 
 
@@ -277,7 +288,7 @@ async def sync_all_sources(
             source = models.NewsSource(
                 name=source_data["name"],
                 url=source_data["url"],
-                category=source_data["category"].value,
+                category=source_data["category"],
                 language=source_data["language"]
             )
             db.add(source)
@@ -301,11 +312,15 @@ async def sync_all_sources(
 
 
 async def parse_source_background(db: AsyncSession, parser: RSSParser, source_id: int, rss_url: str):
-    try:
-        saved_count = await parser.parse_and_save_articles(db, source_id, rss_url)
-        print(f"Сохранено {saved_count} статей из {rss_url}")
-    finally:
-        await parser.close()
+    from app.database import AsyncSessionLocal
+    async with AsyncSessionLocal() as session:
+        try:
+            saved_count = await parser.parse_and_save_articles(session, source_id, rss_url)
+            print(f"Сохранено {saved_count} статей из {rss_url}")
+        except Exception as e:
+            print(f"Ошибка при парсинге {rss_url}: {e}")
+        finally:
+            await parser.close()
 
 
 @app.get("/api/parser/status")

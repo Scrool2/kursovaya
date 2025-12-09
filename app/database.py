@@ -6,14 +6,20 @@ import os
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
     "sqlite+aiosqlite:///./newshub.db"
-).replace("postgres://", "postgresql+asyncpg://")
+)
+
+# Конвертируем postgres:// в postgresql+asyncpg:// для PostgreSQL
+if DATABASE_URL and DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://")
 
 engine = create_async_engine(
     DATABASE_URL,
     echo=False,
     future=True,
-    pool_size=20,
-    max_overflow=0
+    pool_size=10,
+    max_overflow=20,
+    pool_timeout=30,
+    pool_recycle=1800
 )
 
 AsyncSessionLocal = async_sessionmaker(

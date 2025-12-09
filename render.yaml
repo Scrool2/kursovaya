@@ -3,7 +3,9 @@ services:
     name: news-hub-api
     env: python
     region: oregon
-    buildCommand: pip install -r requirements.txt
+    buildCommand: |
+      pip install --upgrade pip
+      pip install -r requirements.txt
     startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT --workers 1
     envVars:
       - key: DATABASE_URL
@@ -12,6 +14,8 @@ services:
           property: connectionString
       - key: SECRET_KEY
         generateValue: true
+      - key: PYTHON_VERSION
+        value: 3.11.8
     healthCheckPath: /health
     autoDeploy: true
 

@@ -1,4 +1,4 @@
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, EmailStr, Field, ConfigDict
 from typing import Optional, List
 from datetime import datetime
 from enum import Enum
@@ -40,8 +40,7 @@ class UserResponse(UserBase):
     role: UserRole
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class Token(BaseModel):
@@ -81,8 +80,7 @@ class ArticleResponse(ArticleBase):
     created_at: datetime
     is_read: Optional[bool] = False
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ArticleFilter(BaseModel):
@@ -112,8 +110,7 @@ class NewsSourceResponse(NewsSourceBase):
     is_active: bool
     created_at: datetime
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserPreferenceBase(BaseModel):
@@ -131,8 +128,7 @@ class UserPreferenceResponse(UserPreferenceBase):
     created_at: datetime
     updated_at: Optional[datetime]
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class ReadHistoryBase(BaseModel):
@@ -151,5 +147,4 @@ class ReadHistoryResponse(ReadHistoryBase):
     article_title: str
     article_category: ArticleCategory
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)

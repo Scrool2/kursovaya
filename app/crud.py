@@ -36,10 +36,10 @@ async def create_user(db: AsyncSession, user: schemas.UserCreate):
         await db.commit()
         await db.refresh(db_user)
 
-        for category_enum in schemas.ArticleCategory:
+        for category_enum in models.ArticleCategory:
             preference = models.UserPreference(
                 user_id=db_user.id,
-                category=category_enum.value,
+                category=category_enum,
                 weight=0.5
             )
             db.add(preference)
@@ -59,10 +59,7 @@ async def create_user(db: AsyncSession, user: schemas.UserCreate):
 
 async def create_article(db: AsyncSession, article: schemas.ArticleCreate):
     try:
-        article_data = article.dict()
-
-        if 'author' in article_data:
-            del article_data['author']
+        article_data = article.model_dump()
 
         article_fields = [c.key for c in models.Article.__table__.columns]
 
@@ -79,6 +76,7 @@ async def create_article(db: AsyncSession, article: schemas.ArticleCreate):
 
     except Exception as e:
         await db.rollback()
+        print(f"Error creating article: {e}")
         raise
 
 
@@ -145,10 +143,12 @@ async def update_article(
         article_id: int,
         article_update: schemas.ArticleUpdate
 ):
+    update_data = article_update.model_dump(exclude_unset=True)
+
     result = await db.execute(
         update(models.Article)
         .where(models.Article.id == article_id)
-        .values(**article_update.dict(exclude_unset=True))
+        .values(**update_data)
     )
     await db.commit()
 
@@ -179,7 +179,7 @@ async def get_articles_count(db: AsyncSession, filter_params: schemas.ArticleFil
 
 
 async def create_news_source(db: AsyncSession, source: schemas.NewsSourceCreate):
-    db_source = models.NewsSource(**source.dict())
+    db_source = models.NewsSource(**source.model_dump())
     db.add(db_source)
     await db.commit()
     await db.refresh(db_source)
@@ -223,6 +223,9 @@ async def update_user_preference(db: AsyncSession, user_id: int, preference: sch
 
     if existing:
         existing.weight = preference.weight
+        await db.commit()
+        await db.refresh(existing)
+        return existing
     else:
         db_preference = models.UserPreference(
             user_id=user_id,
@@ -230,11 +233,9 @@ async def update_user_preference(db: AsyncSession, user_id: int, preference: sch
             weight=preference.weight
         )
         db.add(db_preference)
-
-    await db.commit()
-    await db.refresh(existing if existing else db_preference)
-
-    return existing if existing else db_preference
+        await db.commit()
+        await db.refresh(db_preference)
+        return db_preference
 
 
 async def create_read_history(
@@ -321,9 +322,8 @@ async def get_personalized_feed(db: AsyncSession, user_id: int, limit: int = 20)
 
         if preferred_categories:
             query = query.where(models.Article.category.in_(preferred_categories))
-            query = query.order_by(desc(models.Article.published_at)).limit(limit)
-        else:
-            query = query.order_by(desc(models.Article.published_at)).limit(limit)
+
+        query = query.order_by(desc(models.Article.published_at)).limit(limit)
 
     else:
         query = (
